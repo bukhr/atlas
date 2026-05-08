@@ -1,0 +1,168 @@
+# =============================================================
+# REFERENCE EXAMPLE — DO NOT USE AS-IS
+# =============================================================
+# This workflow is a snapshot of the deployment pipeline used when
+# Atlas was deployed as S3 + CloudFront + Lambda (instead of a
+# single Docker container).
+#
+# It references `lambda-reference/` (originally `lambda/`) which is
+# the AWS Lambda variant of the API kept here as historical reference.
+# The current main codebase ships as a single Node container instead.
+#
+# To adapt this for your own AWS deployment:
+#   1. Replace placeholder `<your-stack>`, `<your-bucket>`, etc.
+#   2. Adapt to whichever API delivery method you choose
+#      (Lambda from lambda-reference, or container behind ALB/Fargate, etc.)
+#   3. Move this file back to `.github/workflows/deploy.yml`
+# =============================================================
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy
+  cancel-in-progress: true
+
+env:
+  STACK_NAME: <your-stack>          # e.g. atlas-prod
+  FRONTEND_BUCKET: <your-bucket>    # e.g. atlas-prod
+  LAMBDA_ARTIFACTS_BUCKET: <your-lambda-artifacts-bucket>  # e.g. atlas-lambda-artifacts-prod
+  LAMBDA_FUNCTION: <your-lambda-function>  # e.g. atlas-folder-order-prod
+  APP_HOST: <your-app-domain>       # e.g. atlas.example.com
+
+jobs:
+  deploy-frontend:
+    name: Deploy Frontend
+    needs: deploy-lambda
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+        env:
+          VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
+          VITE_ROOT_FOLDER_ID: ${{ secrets.VITE_ROOT_FOLDER_ID }}
+          VITE_GA_MEASUREMENT_ID: ${{ secrets.VITE_GA_MEASUREMENT_ID }}
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Sync to S3
+        run: aws s3 sync build/ s3://${{ env.FRONTEND_BUCKET }}/ --delete --exclude "data/*" --exclude "extensions/*" --exclude "auth/*"
+
+      - name: Invalidate CloudFront
+        run: |
+          DIST_ID=$(aws cloudformation describe-stacks \
+            --stack-name ${{ env.STACK_NAME }} \
+            --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontDistributionId`].OutputValue' \
+            --output text)
+          aws cloudfront create-invalidation --distribution-id "$DIST_ID" --paths "/*"
+
+  sign-firefox-extension:
+    name: Sign & Deploy Firefox Extension
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Check if extension version changed
+        id: check
+        run: |
+          LOCAL=$(node -p "require('./browser-extensions/atlas-links/manifest.json').version")
+          REMOTE=$(aws s3 cp s3://${{ env.FRONTEND_BUCKET }}/extensions/updates.json - 2>/dev/null \
+            | node -p "try{JSON.parse(require('fs').readFileSync(0,'utf8')).addons['atlas-links@example.com'].updates[0].version}catch(e){''}" \
+            || echo "")
+          echo "local=$LOCAL" >> "$GITHUB_OUTPUT"
+          if [ "$LOCAL" = "$REMOTE" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install web-ext
+        if: steps.check.outputs.changed == 'true'
+        run: npm install -g web-ext
+
+      - name: Sign extension
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          web-ext sign \
+            --source-dir browser-extensions/atlas-links/ \
+            --channel unlisted \
+            --api-key "${{ secrets.AMO_JWT_ISSUER }}" \
+            --api-secret "${{ secrets.AMO_JWT_SECRET }}"
+        timeout-minutes: 10
+
+      - name: Upload artifacts to S3
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          VERSION="${{ steps.check.outputs.local }}"
+          cp web-ext-artifacts/*.xpi atlas-links.xpi
+          node -e "
+            const data = {addons:{'atlas-links@example.com':{updates:[{version:'${VERSION}',update_link:'https://${{ env.APP_HOST }}/extensions/atlas-links.xpi'}]}}};
+            require('fs').writeFileSync('updates.json', JSON.stringify(data, null, 2));
+          "
+          aws s3 cp atlas-links.xpi s3://${{ env.FRONTEND_BUCKET }}/extensions/atlas-links.xpi \
+            --content-type application/x-xpinstall
+          aws s3 cp updates.json s3://${{ env.FRONTEND_BUCKET }}/extensions/updates.json \
+            --content-type application/json
+
+      - name: Invalidate CloudFront
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          DIST_ID=$(aws cloudformation describe-stacks \
+            --stack-name ${{ env.STACK_NAME }} \
+            --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontDistributionId`].OutputValue' \
+            --output text)
+          aws cloudfront create-invalidation --distribution-id "$DIST_ID" \
+            --paths "/extensions/*"
+
+  deploy-lambda:
+    name: Deploy Lambda
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: docs/deployment/aws/lambda-reference/package-lock.json
+
+      - name: Package Lambda
+        run: cd docs/deployment/aws/lambda-reference && npm ci && npm run package
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Upload and update Lambda
+        run: |
+          aws s3 cp docs/deployment/aws/lambda-reference/latest.zip s3://${{ env.LAMBDA_ARTIFACTS_BUCKET }}/folder-order/latest.zip
+          aws lambda update-function-code \
+            --function-name ${{ env.LAMBDA_FUNCTION }} \
+            --s3-bucket ${{ env.LAMBDA_ARTIFACTS_BUCKET }} \
+            --s3-key folder-order/latest.zip

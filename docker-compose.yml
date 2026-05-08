@@ -1,0 +1,30 @@
+services:
+  atlas:
+    build:
+      context: .
+      args:
+        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID}
+        VITE_ROOT_FOLDER_ID: ${VITE_ROOT_FOLDER_ID}
+        VITE_GA_MEASUREMENT_ID: ${VITE_GA_MEASUREMENT_ID:-}
+        PUBLIC_APP_URL: ${PUBLIC_APP_URL}
+        PUBLIC_APP_NAME: ${PUBLIC_APP_NAME:-Atlas}
+        PUBLIC_CONTACT_EMAIL: ${PUBLIC_CONTACT_EMAIL:-}
+        PUBLIC_PRIVACY_POLICY_URL: ${PUBLIC_PRIVACY_POLICY_URL:-}
+    image: atlas:local
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      JWT_SECRET: ${JWT_SECRET}
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-filesystem}
+      STORAGE_PATH: /app/data
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_REGION: ${S3_REGION:-}
+      CLOUDFRONT_DISTRIBUTION_ID: ${CLOUDFRONT_DISTRIBUTION_ID:-}
+    volumes:
+      - atlas-data:/app/data
+
+volumes:
+  atlas-data:

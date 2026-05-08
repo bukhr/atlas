@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy — {{APP_NAME}} Links</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; line-height: 1.6; color: #333; }
+    h1 { font-size: 1.5rem; }
+    h2 { font-size: 1.15rem; margin-top: 1.5rem; }
+    p, ul { margin: 0.5rem 0; }
+  </style>
+</head>
+<body>
+  <h1>Privacy Policy</h1>
+  <p><strong>{{APP_NAME}} Links</strong> (the "Extension")</p>
+
+  <h2>Data Collection</h2>
+  <p>This extension does <strong>not</strong> collect, store, or transmit any personal data. It does not use cookies, analytics, or tracking of any kind.</p>
+
+  <h2>How It Works</h2>
+  <p>The extension runs a content script on Google Docs, Sheets, Slides, Drawings, and Drive pages <strong>only when they are loaded inside an iframe</strong> within the {{APP_NAME}} web application. Its sole function is to intercept clicks on Google Drive links and redirect navigation back to the parent {{APP_NAME}} app via the browser's <code>postMessage</code> API.</p>
+
+  <h2>Permissions</h2>
+  <ul>
+    <li><strong>Content script access on Google Workspace domains</strong> — required to detect and intercept Drive link clicks inside embedded document previews. No data is read or extracted from these pages.</li>
+    <li><strong>Content script access on {{APP_HOST}}</strong> — sets a single DOM attribute (<code>data-atlas-ext</code>) so the web application can detect whether the extension is installed. No data is read, collected, or transmitted.</li>
+  </ul>
+
+  <h2>Third-Party Sharing</h2>
+  <p>No data is shared with third parties. The extension communicates exclusively between the embedded iframe and its parent {{APP_NAME}} window.</p>
+
+  <h2>Contact</h2>
+  <p>If you have questions about this policy, contact us at <strong>{{CONTACT_EMAIL}}</strong>.</p>
+</body>
+</html>

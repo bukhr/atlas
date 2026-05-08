@@ -1,0 +1,257 @@
+@import "tailwindcss";
+
+@theme {
+  --radius-md: 8px;
+}
+@plugin "@tailwindcss/forms";
+@plugin "@tailwindcss/typography";
+
+/* Modo oscuro controlado por clase .dark */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Variante para tema atlas */
+@custom-variant theme-atlas (&:where([data-theme="atlas"] *));
+
+/* Skeleton UI v3 - Tema Atlas */
+[data-theme='atlas'] {
+  /* Tipografía */
+  --spacing: 0.25rem;
+  --text-scaling: 1.067;
+  --base-font-color: #1A2441;
+  --base-font-color-dark: #F5F7FA;
+  --base-font-family: 'Google Sans Flex', system-ui, sans-serif;
+  --base-font-size: inherit;
+  --base-line-height: 1.45;
+  --base-font-weight: normal;
+  --base-font-style: normal;
+  --base-letter-spacing: 0em;
+  --heading-font-color: #1A2441;
+  --heading-font-color-dark: #F5F7FA;
+  --heading-font-family: 'Google Sans Flex', system-ui, sans-serif;
+  --heading-font-weight: 600;
+  --heading-font-style: normal;
+  --heading-letter-spacing: -0.01em;
+  --anchor-font-color: #2F4DAA;
+  --anchor-font-color-dark: #73A0DB;
+  --anchor-font-family: inherit;
+  --anchor-font-size: inherit;
+  --anchor-line-height: inherit;
+  --anchor-font-weight: inherit;
+  --anchor-font-style: inherit;
+  --anchor-letter-spacing: inherit;
+  --anchor-text-decoration: none;
+  --anchor-text-decoration-hover: underline;
+  --anchor-text-decoration-active: none;
+  --anchor-text-decoration-focus: none;
+  /* Fondos */
+  --body-background-color: #FFFFFF;
+  --body-background-color-dark: #0F1219;
+  /* Radios */
+  --radius-base: 0.375rem;
+  --radius-container: 0.5rem;
+  --default-border-width: 1px;
+  --default-divide-width: 1px;
+  --default-ring-width: 2px;
+  /* Primary */
+  --color-primary-50: #E8EDFA;
+  --color-primary-100: #D1DBFA;
+  --color-primary-200: #A3B7F5;
+  --color-primary-300: #7593E0;
+  --color-primary-400: #4A6FCC;
+  --color-primary-500: #2F4DAA;
+  --color-primary-600: #263E88;
+  --color-primary-700: #1E2F66;
+  --color-primary-800: #152044;
+  --color-primary-900: #0D1122;
+  --color-primary-950: #070911;
+  --color-primary-contrast-dark: #0D1122;
+  --color-primary-contrast-light: #FFFFFF;
+  /* Secondary */
+  --color-secondary-50: #FFF9E6;
+  --color-secondary-100: #FEF3CC;
+  --color-secondary-200: #FDE799;
+  --color-secondary-300: #FCDB66;
+  --color-secondary-400: #FCCF33;
+  --color-secondary-500: #FBBF3D;
+  --color-secondary-600: #E5A820;
+  --color-secondary-700: #B38418;
+  --color-secondary-800: #806010;
+  --color-secondary-900: #4D3A08;
+  --color-secondary-950: #261D04;
+  --color-secondary-contrast-dark: #4D3A08;
+  --color-secondary-contrast-light: #261D04;
+  /* Tertiary */
+  --color-tertiary-50: #FEF4E6;
+  --color-tertiary-100: #FDE9CC;
+  --color-tertiary-200: #FBD399;
+  --color-tertiary-300: #F9BD66;
+  --color-tertiary-400: #F7A733;
+  --color-tertiary-500: #F59121;
+  --color-tertiary-600: #D47A15;
+  --color-tertiary-700: #A35E10;
+  --color-tertiary-800: #73420B;
+  --color-tertiary-900: #422706;
+  --color-tertiary-950: #211303;
+  --color-tertiary-contrast-dark: #422706;
+  --color-tertiary-contrast-light: #FFFFFF;
+  /* Success - Verde */
+  --color-success-50: #EEFAF0;
+  --color-success-100: #DEF5E2;
+  --color-success-200: #BDECC5;
+  --color-success-300: #9CE2A8;
+  --color-success-400: #7BD98B;
+  --color-success-500: #72C480;
+  --color-success-600: #5AA866;
+  --color-success-700: #43804D;
+  --color-success-800: #2D5833;
+  --color-success-900: #16301A;
+  --color-success-950: #0B180D;
+  --color-success-contrast-dark: #16301A;
+  --color-success-contrast-light: #FFFFFF;
+  /* Warning */
+  --color-warning-50: #FFF9E6;
+  --color-warning-100: #FEF0C3;
+  --color-warning-200: #FDE18A;
+  --color-warning-300: #FCD252;
+  --color-warning-400: #FBC319;
+  --color-warning-500: #E5A820;
+  --color-warning-600: #B38418;
+  --color-warning-700: #806010;
+  --color-warning-800: #4D3A08;
+  --color-warning-900: #332605;
+  --color-warning-950: #1A1303;
+  --color-warning-contrast-dark: #332605;
+  --color-warning-contrast-light: #FFFFFF;
+  /* Error */
+  --color-error-50: #FEF0ED;
+  --color-error-100: #FDE0DA;
+  --color-error-200: #FBC2B5;
+  --color-error-300: #F9A390;
+  --color-error-400: #F7856B;
+  --color-error-500: #F54721;
+  --color-error-600: #D33516;
+  --color-error-700: #A22810;
+  --color-error-800: #711C0B;
+  --color-error-900: #400F06;
+  --color-error-950: #200803;
+  --color-error-contrast-dark: #400F06;
+  --color-error-contrast-light: #FFFFFF;
+  /* Surface - Grises */
+  --color-surface-50: #FFFFFF;
+  --color-surface-100: #F5F7FA;
+  --color-surface-200: #E7EEFF;
+  --color-surface-300: #D9E3FC;
+  --color-surface-400: #A1A2AA;
+  --color-surface-500: #7D7D7D;
+  --color-surface-600: #5A5D66;
+  --color-surface-700: #3D4250;
+  --color-surface-800: #2B3C6A;
+  --color-surface-900: #1A2441;
+  --color-surface-950: #0F1219;
+  --color-surface-contrast-dark: #0F1219;
+  --color-surface-contrast-light: #FFFFFF;
+}
+
+@import "@skeletonlabs/skeleton";
+
+/* Animaciones */
+@import "tw-animate-css";
+
+/* ============================================
+   Estilos Base - Aplicar variables del tema
+   ============================================ */
+@layer base {
+  body {
+    background-color: var(--body-background-color);
+    color: var(--base-font-color);
+    font-family: var(--base-font-family);
+  }
+
+  /* Modo oscuro - clase .dark en html */
+  html.dark body {
+    background-color: var(--body-background-color-dark);
+    color: var(--base-font-color-dark);
+  }
+}
+
+/* ============================================
+   Scrollbar moderna (estilo Google/macOS)
+   ============================================ */
+
+/* Webkit custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 99px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.32);
+}
+
+::-webkit-scrollbar-button {
+  display: none !important;
+  height: 0 !important;
+  width: 0 !important;
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.32);
+}
+
+/* ============================================
+   Performance Optimizations for Tree View
+   ============================================ */
+
+/* Hint al navegador que estos elementos se transformarán */
+.tree-node {
+  will-change: transform;
+}
+
+/* Contención de layout/paint para items virtualizados */
+.virtual-list-item {
+  contain: layout style paint;
+}
+
+/* Optimización para scroll suave */
+.virtual-scroll-container {
+  overflow-anchor: none;
+  overscroll-behavior: contain;
+}
+
+/* GPU acceleration para elementos que se mueven frecuentemente */
+.tree-node-animated {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+/* Reducir repaints en hover */
+.tree-node:hover {
+  isolation: isolate;
+}
+
+/* Touch drag feedback */
+.tree-node.touch-drag-pending {
+  animation: longpress-pulse 0.5s ease-out forwards;
+}
+
+.tree-node.touch-dragging {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+@keyframes longpress-pulse {
+  0% { transform: scale(1); }
+  100% { transform: scale(1.03); background-color: var(--color-primary-100); }
+}

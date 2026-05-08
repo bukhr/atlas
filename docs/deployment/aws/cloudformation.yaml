@@ -1,0 +1,463 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Atlas - Serverless infrastructure (S3 + CloudFront + Lambda + API Gateway)
+
+Parameters:
+  Environment:
+    Type: String
+    Default: prod
+    AllowedValues: [prod, staging]
+    Description: Ambiente de despliegue
+  DomainName:
+    Type: String
+    Description: >-
+      Dominio de la app (ej: atlas.example.com).
+      Debe estar en la Hosted Zone de Route 53 seleccionada.
+  HostedZoneId:
+    Type: AWS::Route53::HostedZone::Id
+    Description: >-
+      ID de la Hosted Zone en Route 53 donde se creará el registro DNS.
+      Se puede encontrar en Route 53 > Hosted zones.
+  CertificateArn:
+    Type: String
+    Description: >-
+      ARN del certificado ACM para HTTPS. DEBE estar en us-east-1 (requerido por CloudFront).
+      Se puede encontrar en ACM > Certificates (region N. Virginia).
+  BucketName:
+    Type: String
+    Default: atlas-prod
+    Description: >-
+      Nombre del bucket S3. Si el bucket ya existe, importarlo al stack
+      antes de crear (o usar otro nombre).
+
+Resources:
+  # ============================================================
+  # S3 Bucket - Single bucket with prefixes (frontend/ and data/)
+  # ============================================================
+  AtlasBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: CleanupOldVersions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+          - Id: CleanupExpiredSessions
+            Status: Enabled
+            Prefix: auth/sessions/
+            ExpirationInDays: 30
+      VersioningConfiguration:
+        Status: Enabled
+
+  AtlasBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref AtlasBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudFrontOAC
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub ${AtlasBucket.Arn}/*
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}
+
+  # ============================================================
+  # CloudFront Distribution
+  # ============================================================
+  CloudFrontOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub atlas-oac-${Environment}
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  SecurityHeadersPolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub atlas-security-headers-${Environment}
+        SecurityHeadersConfig:
+          ContentTypeOptions:
+            Override: true
+          FrameOptions:
+            FrameOption: SAMEORIGIN
+            Override: true
+          ReferrerPolicy:
+            ReferrerPolicy: strict-origin-when-cross-origin
+            Override: true
+          StrictTransportSecurity:
+            AccessControlMaxAgeSec: 31536000
+            IncludeSubdomains: true
+            Override: true
+          ContentSecurityPolicy:
+            ContentSecurityPolicy: "default-src 'self'; script-src 'self' 'unsafe-inline' https://accounts.google.com https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; frame-src *; img-src * data:; connect-src *;"
+            Override: true
+        CustomHeadersConfig:
+          Items:
+            - Header: X-DNS-Prefetch-Control
+              Value: 'off'
+              Override: true
+            - Header: Permissions-Policy
+              Value: camera=(), microphone=(), geolocation=()
+              Override: true
+
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        HttpVersion: http2and3
+        PriceClass: PriceClass_100
+        Aliases:
+          - !Ref DomainName
+        ViewerCertificate:
+          AcmCertificateArn: !Ref CertificateArn
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
+        DefaultRootObject: index.html
+
+        Origins:
+          # S3 origin for frontend and data
+          - Id: S3Origin
+            DomainName: !GetAtt AtlasBucket.RegionalDomainName
+            OriginAccessControlId: !Ref CloudFrontOAC
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+
+          # API Gateway origin
+          - Id: ApiOrigin
+            DomainName: !Sub ${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols:
+                - TLSv1.2
+
+        # Default behavior: Frontend (SPA)
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # CachingOptimized
+          ResponseHeadersPolicyId: !Ref SecurityHeadersPolicy
+          Compress: true
+
+        CacheBehaviors:
+          # /api/* → API Gateway (no cache)
+          - PathPattern: /api/*
+            TargetOriginId: ApiOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # CachingDisabled
+            ResponseHeadersPolicyId: !Ref SecurityHeadersPolicy
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+            Compress: true
+
+          # /data/* → S3 data (cache 5 min)
+          - PathPattern: /data/*
+            TargetOriginId: S3Origin
+            ViewerProtocolPolicy: redirect-to-https
+            ResponseHeadersPolicyId: !Ref SecurityHeadersPolicy
+            CachePolicyId: !Ref DataCachePolicy
+            Compress: true
+
+        # SPA fallback: 403/404 from S3 → serve index.html
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+
+  DataCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub atlas-data-cache-${Environment}
+        DefaultTTL: 300  # 5 minutes
+        MaxTTL: 600      # 10 minutes
+        MinTTL: 0
+        ParametersInCacheKeyAndForwardedToOrigin:
+          CookiesConfig:
+            CookieBehavior: none
+          HeadersConfig:
+            HeaderBehavior: none
+          QueryStringsConfig:
+            QueryStringBehavior: none
+          EnableAcceptEncodingGzip: true
+          EnableAcceptEncodingBrotli: true
+
+  # ============================================================
+  # API Gateway HTTP API (v2)
+  # ============================================================
+  ApiGateway:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub atlas-api-${Environment}
+      ProtocolType: HTTP
+
+  ApiGatewayStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref ApiGateway
+      StageName: $default
+      AutoDeploy: true
+
+  ApiGatewayIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref ApiGateway
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt FolderOrderFunction.Arn
+      PayloadFormatVersion: '2.0'
+
+  ApiRouteOrderGet:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ApiGateway
+      RouteKey: GET /api/folder-order/{folderId}
+      Target: !Sub integrations/${ApiGatewayIntegration}
+
+  ApiRouteOrderPut:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ApiGateway
+      RouteKey: PUT /api/folder-order/{folderId}
+      Target: !Sub integrations/${ApiGatewayIntegration}
+
+  ApiRouteAuthToken:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ApiGateway
+      RouteKey: POST /api/auth/token
+      Target: !Sub integrations/${ApiGatewayIntegration}
+
+  ApiRouteAuthRefresh:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ApiGateway
+      RouteKey: POST /api/auth/refresh
+      Target: !Sub integrations/${ApiGatewayIntegration}
+
+  ApiRouteAuthRevoke:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ApiGateway
+      RouteKey: POST /api/auth/revoke
+      Target: !Sub integrations/${ApiGatewayIntegration}
+
+  # ============================================================
+  # Lambda Function
+  # ============================================================
+  FolderOrderFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub atlas-folder-order-${Environment}
+      Runtime: nodejs20.x
+      Handler: handler.handler
+      MemorySize: 256
+      Timeout: 30
+      Code:
+        S3Bucket: !Sub atlas-lambda-artifacts-${Environment}
+        S3Key: folder-order/latest.zip
+      Environment:
+        Variables:
+          S3_BUCKET: !Ref BucketName
+          CLOUDFRONT_DISTRIBUTION_ID: !Ref CloudFrontDistribution
+          SECRETS_NAME: prod/global
+          SECRETS_PREFIX: ATLAS
+      Role: !GetAtt LambdaExecutionRole.Arn
+
+  FolderOrderFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref FolderOrderFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*
+
+  # ============================================================
+  # IAM Role for Lambda
+  # ============================================================
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub atlas-lambda-role-${Environment}
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource:
+                  - !Sub arn:aws:s3:::${BucketName}/data/folder-order/*
+                  - !Sub arn:aws:s3:::${BucketName}/auth/sessions/*
+              - Effect: Allow
+                Action:
+                  - s3:DeleteObject
+                Resource:
+                  - !Sub arn:aws:s3:::${BucketName}/auth/sessions/*
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource:
+                  - !Sub arn:aws:s3:::${BucketName}
+        - PolicyName: SecretsManagerAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource:
+                  - !Sub arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:prod/global*
+        - PolicyName: CloudFrontInvalidation
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: cloudfront:CreateInvalidation
+                Resource: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}
+        - PolicyName: CloudWatchLogs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+
+  # ============================================================
+  # Route 53 DNS Record
+  # ============================================================
+  DnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt CloudFrontDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2  # CloudFront hosted zone ID (fixed)
+
+  # ============================================================
+  # IAM User for GitHub Actions CI/CD
+  # ============================================================
+  CIUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: !Sub atlas-ci-${Environment}
+      Policies:
+        - PolicyName: S3DeployFrontend
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub arn:aws:s3:::${BucketName}
+                  - !Sub arn:aws:s3:::${BucketName}/*
+        - PolicyName: S3DeployLambdaArtifact
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource:
+                  - !Sub arn:aws:s3:::atlas-lambda-artifacts-${Environment}/folder-order/*
+        - PolicyName: CloudFrontInvalidation
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: cloudfront:CreateInvalidation
+                Resource: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}
+        - PolicyName: CloudFormationDescribeStack
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: cloudformation:DescribeStacks
+                Resource: !Sub arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*
+        - PolicyName: LambdaUpdateCode
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: lambda:UpdateFunctionCode
+                Resource: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:atlas-folder-order-${Environment}
+
+  CIUserAccessKey:
+    Type: AWS::IAM::AccessKey
+    Properties:
+      UserName: !Ref CIUser
+
+  DnsRecordAAAA:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: AAAA
+      AliasTarget:
+        DNSName: !GetAtt CloudFrontDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2
+
+Outputs:
+  BucketName:
+    Value: !Ref AtlasBucket
+    Description: S3 bucket name
+
+  CloudFrontDistributionId:
+    Value: !Ref CloudFrontDistribution
+    Description: CloudFront distribution ID
+
+  CloudFrontDomainName:
+    Value: !GetAtt CloudFrontDistribution.DomainName
+    Description: CloudFront domain name
+
+  ApiGatewayUrl:
+    Value: !Sub https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com
+    Description: API Gateway URL
+
+  AppUrl:
+    Value: !Sub https://${DomainName}
+    Description: Application URL
+
+  CIUserAccessKeyId:
+    Value: !Ref CIUserAccessKey
+    Description: Access Key ID for CI/CD user (set as AWS_ACCESS_KEY_ID in GitHub secrets)
+
+  CIUserSecretAccessKey:
+    Value: !GetAtt CIUserAccessKey.SecretAccessKey
+    Description: Secret Access Key for CI/CD user (set as AWS_SECRET_ACCESS_KEY in GitHub secrets)

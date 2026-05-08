@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "{{EXTENSION_NAME}}",
+  "version": "1.1.1",
+  "description": "Redirects Google Drive links back into {{APP_NAME}} when documents are viewed inside the app.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "{{ADDON_ID}}",
+      "strict_min_version": "109.0"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://docs.google.com/*",
+        "https://sheets.google.com/*",
+        "https://slides.google.com/*",
+        "https://drive.google.com/*",
+        "https://drawings.google.com/*"
+      ],
+      "all_frames": true,
+      "run_at": "document_idle",
+      "js": ["content.js"]
+    },
+    {
+      "matches": {{APP_HOST_MATCHES}},
+      "run_at": "document_start",
+      "js": ["app-detect.js"]
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["detect.json"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
