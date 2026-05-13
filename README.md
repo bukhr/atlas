@@ -11,29 +11,79 @@ Hierarchical viewer for Google Drive shared folders. Atlas renders a Drive folde
 - **Cache:** two-level (in-memory + IndexedDB via localforage)
 - **Deployment:** single Docker container
 
+## Google Cloud setup
+
+Atlas requires a Google Cloud project with OAuth credentials and two APIs enabled.
+
+### 1. Create a project
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com) and create a new project (or select an existing one).
+2. Note the **Project ID** — you may need it for `gcloud` commands.
+
+### 2. Enable required APIs
+
+In **APIs & Services → Library**, enable:
+
+| API | Identifier | Used for |
+|-----|-----------|----------|
+| Google Drive API | `drive.googleapis.com` | Listing folders, files, metadata and validating reorder permissions |
+| Google Docs API | `docs.googleapis.com` | Inline document preview (headings and tab structure) |
+
+```bash
+gcloud services enable drive.googleapis.com docs.googleapis.com
+```
+
+> The OAuth2 API (`oauth2.googleapis.com`) is enabled by default and does not need to be added manually.
+
+### 3. Configure the OAuth consent screen
+
+In **APIs & Services → OAuth consent screen**. The console is split into three sub-sections:
+
+**Branding** — Fill in the app name, support email, and (optionally) logo and privacy policy URL. These appear on the Google sign-in prompt shown to users.
+
+**Audience** — Set the user type:
+- **Internal** — restricted to users in your Google Workspace org (recommended for company-internal tools).
+- **External** — open to any Google account; requires going through Google's verification process if sensitive scopes are used.
+
+**Data Access** — Add the scopes the app requests (`email`, `profile` and `openid` are included by default):
+  - `auth/drive.readonly`
+  - `auth/drive.metadata.readonly`
+  - `auth/documents.readonly`
+  - `auth/drive.appdata`
+
+### 4. Create an OAuth client ID
+
+In **APIs & Services → Credentials → Create credentials → OAuth client ID**:
+
+- **Application type:** Web application.
+- **Authorized JavaScript origins:** `http://localhost:3000` (add your production domain too).
+- **Authorized redirect URIs:** `http://localhost:3000/api/auth/callback` (add your production URL too).
+
+Download or copy the **Client ID** and **Client Secret** — you will need them in the next step.
+
+---
+
 ## Quick start (local)
 
-Requires Node 22+, Docker, and a Google Cloud project with an OAuth client.
+Requires Node 22+, Docker, and the OAuth credentials created above.
 
-1. **Create an OAuth client** in [Google Cloud Console](https://console.cloud.google.com) → APIs & Services → Credentials. Use type "Web application", authorize `http://localhost:3000` as both an origin and a redirect URI.
-
-2. **Configure the environment.** Copy `.env.example` to `.env` and fill in:
+1. **Configure the environment.** Copy `.env.example` to `.env` and fill in:
    ```env
-   VITE_GOOGLE_CLIENT_ID=...        # from Cloud Console
-   GOOGLE_CLIENT_SECRET=...         # from Cloud Console
-   VITE_ROOT_FOLDER_ID=...          # ID of the Drive folder to use as the tree root
-   PUBLIC_APP_URL=http://localhost:3000
-   JWT_SECRET=...                   # generate with: openssl rand -base64 32
+   PUBLIC_APP_URL=http://localhost:3000  # The app base URL
+   VITE_ROOT_FOLDER_ID=                  # ID of the Drive folder to use as the tree root
+   VITE_GOOGLE_CLIENT_ID=                # from Cloud Console
+   GOOGLE_CLIENT_SECRET=                 # from Cloud Console
+   JWT_SECRET=                           # generate with: openssl rand -base64 32
    ```
 
-3. **Install dependencies and run the dev server:**
+2. **Install dependencies and run:**
    ```bash
    npm install
    npm run dev
    ```
    Open <http://localhost:3000>.
 
-4. **Build and run as a container:**
+3. **Or build and run as a container:**
    ```bash
    docker compose up --build
    ```
@@ -51,10 +101,10 @@ All variables are documented in `.env.example`. The most relevant:
 
 | Variable | Required | Default | Notes |
 |---|---|---|---|
+| `PUBLIC_APP_URL` | yes | `http://localhost:3000` | Used by the OAuth redirect |
+| `VITE_ROOT_FOLDER_ID` | yes | — | Drive folder ID used as tree root |
 | `VITE_GOOGLE_CLIENT_ID` | yes | — | Public OAuth client ID |
 | `GOOGLE_CLIENT_SECRET` | yes | — | Server-only |
-| `VITE_ROOT_FOLDER_ID` | yes | — | Drive folder ID used as tree root |
-| `PUBLIC_APP_URL` | yes | `http://localhost:3000` | Used by the OAuth redirect |
 | `JWT_SECRET` | yes | — | 32+ random bytes |
 | `STORAGE_DRIVER` | no | `filesystem` | `filesystem` \| `s3` |
 | `STORAGE_PATH` | no | `./data` | For filesystem |
