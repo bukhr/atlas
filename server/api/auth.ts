@@ -1,10 +1,5 @@
 import { Hono } from 'hono';
-import {
-	exchangeCode,
-	getUserInfo,
-	refreshAccessToken,
-	revokeToken,
-} from '../lib/google-oauth.js';
+import { exchangeCode, getUserInfo, refreshAccessToken, revokeToken } from '../lib/google-oauth.js';
 import { signSessionJwt, verifySessionJwt } from '../lib/jwt.js';
 import { touchSession } from '../lib/sessions.js';
 import { getStorage } from '../storage/factory.js';
@@ -33,29 +28,32 @@ authRouter.post('/token', async (c) => {
 
 	try {
 		const tokens = await exchangeCode(code, redirectUri);
-
-		if (!tokens.refresh_token) {
-			console.warn('No refresh_token received from Google — user may need to re-consent');
-		}
-
 		const userInfo = await getUserInfo(tokens.access_token);
 
 		const storage = getStorage();
+		const existingSession = await storage.getSession(userInfo.id);
+		const refreshToken = tokens.refresh_token || existingSession?.refreshToken || '';
+
+		if (!refreshToken) {
+			console.warn('No refresh_token received from Google — user may need to re-consent');
+		}
+
+		const now = new Date().toISOString();
 		await storage.saveSession({
 			userId: userInfo.id,
 			email: userInfo.email,
 			name: userInfo.name,
 			picture: userInfo.picture,
-			refreshToken: tokens.refresh_token ?? '',
-			createdAt: new Date().toISOString(),
-			lastUsedAt: new Date().toISOString(),
+			refreshToken,
+			createdAt: existingSession?.createdAt ?? now,
+			lastUsedAt: now
 		});
 
 		const jwt = await signSessionJwt({
 			sub: userInfo.id,
 			email: userInfo.email,
 			name: userInfo.name,
-			picture: userInfo.picture,
+			picture: userInfo.picture
 		});
 
 		return c.json({
@@ -66,8 +64,8 @@ authRouter.post('/token', async (c) => {
 				id: userInfo.id,
 				email: userInfo.email,
 				name: userInfo.name,
-				picture: userInfo.picture,
-			},
+				picture: userInfo.picture
+			}
 		});
 	} catch (err) {
 		console.error('Auth token exchange failed:', err);

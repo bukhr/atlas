@@ -1,4 +1,5 @@
-import { mkdir, readFile, writeFile, unlink } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import type { FolderOrder, Session, StorageAdapter } from './adapter.js';
 
@@ -61,9 +62,8 @@ async function readJsonOrNull<T>(path: string): Promise<T | null> {
 
 async function writeJsonAtomic(path: string, data: unknown): Promise<void> {
 	await mkdir(dirname(path), { recursive: true });
-	const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
+	const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`;
 	await writeFile(tmp, JSON.stringify(data, null, 2));
-	const { rename } = await import('node:fs/promises');
 	await rename(tmp, path);
 }
 
