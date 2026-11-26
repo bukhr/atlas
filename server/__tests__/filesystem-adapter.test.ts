@@ -25,7 +25,7 @@ describe('FilesystemAdapter', () => {
 		await adapter.writeOrder('folder-abc_123', {
 			order: ['a', 'b', 'c'],
 			updatedAt: '2026-05-07T00:00:00.000Z',
-			updatedBy: 'user@example.com',
+			updatedBy: 'user@example.com'
 		});
 
 		const data = await adapter.readOrder('folder-abc_123');
@@ -45,7 +45,7 @@ describe('FilesystemAdapter', () => {
 			picture: 'p',
 			refreshToken: 'rt',
 			createdAt: '2026-05-07T00:00:00.000Z',
-			lastUsedAt: '2026-05-07T00:00:00.000Z',
+			lastUsedAt: '2026-05-07T00:00:00.000Z'
 		};
 		await adapter.saveSession(session);
 		expect(await adapter.getSession('user-1')).toEqual(session);
@@ -63,8 +63,40 @@ describe('FilesystemAdapter', () => {
 		await expect(
 			adapter.writeOrder('../bad', {
 				order: [],
-				updatedAt: '2026-05-07T00:00:00.000Z',
+				updatedAt: '2026-05-07T00:00:00.000Z'
 			})
 		).rejects.toThrow(/Invalid id/);
+	});
+
+	it('handles concurrent writes to the same session and folder order without ENOENT', async () => {
+		await Promise.all(
+			Array.from({ length: 20 }, (_, i) =>
+				adapter.saveSession({
+					userId: 'user-concurrent',
+					email: 'a@b.com',
+					name: 'A',
+					picture: 'p',
+					refreshToken: `rt-${i}`,
+					createdAt: '2026-05-07T00:00:00.000Z',
+					lastUsedAt: `2026-05-07T00:00:${String(i).padStart(2, '0')}.000Z`
+				})
+			)
+		);
+
+		const savedSession = await adapter.getSession('user-concurrent');
+		expect(savedSession?.userId).toBe('user-concurrent');
+		expect(savedSession?.refreshToken).toMatch(/^rt-\d+$/);
+
+		await Promise.all(
+			Array.from({ length: 20 }, (_, i) =>
+				adapter.writeOrder('folder-concurrent', {
+					order: [`file-${i}`],
+					updatedAt: '2026-05-07T00:00:00.000Z'
+				})
+			)
+		);
+
+		const savedOrder = await adapter.readOrder('folder-concurrent');
+		expect(savedOrder?.order).toHaveLength(1);
 	});
 });
